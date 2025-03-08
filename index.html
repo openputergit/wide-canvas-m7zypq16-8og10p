@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Duplicate Checker</title>
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.3/dist/simple-statistics.min.js"></script>
+    <script src="https://unpkg.com/compromise"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: #f0f9ff;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen p-4">
+        <div class="max-w-4xl mx-auto">
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                <h1 class="text-2xl font-bold text-gray-800 mb-4">Content Duplicate Checker</h1>
+                
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2">Project ID:</label>
+                    <input type="text" id="projectId" class="w-full p-2 border rounded focus:border-blue-500 focus:outline-none" placeholder="Enter Project ID">
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-gray-700 mb-2">Content:</label>
+                    <textarea id="contentInput" class="w-full p-2 border rounded h-32 focus:border-blue-500 focus:outline-none" placeholder="Enter your content here..."></textarea>
+                </div>
+
+                <div class="flex space-x-4">
+                    <button onclick="checkDuplicates()" class="gradient-bg text-white px-6 py-2 rounded hover:opacity-90 transition">
+                        Check Duplicates
+                    </button>
+                    <button onclick="downloadExcel()" class="bg-green-600 text-white px-6 py-2 rounded hover:opacity-90 transition">
+                        Download Excel
+                    </button>
+                </div>
+
+                <div id="result" class="mt-4 p-4 rounded hidden"></div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Similarity Statistics</h2>
+                <div id="statistics" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Statistics will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store project data in memory
+        let projectData = {};
+
+        function calculateSimilarity(str1, str2) {
+            // Using Compromise for NLP analysis
+            const doc1 = nlp(str1);
+            const doc2 = nlp(str2);
+            
+            // Get normalized texts
+            const normalized1 = doc1.normalize().text();
+            const normalized2 = doc2.normalize().text();
+            
+            // Calculate word-based similarity
+            const words1 = normalized1.toLowerCase().split(' ');
+            const words2 = normalized2.toLowerCase().split(' ');
+            
+            // Using Jaccard similarity
+            const set1 = new Set(words1);
+            const set2 = new Set(words2);
+            const intersection = new Set([...set1].filter(x => set2.has(x)));
+            const union = new Set([...set1, ...set2]);
+            
+            return intersection.size / union.size;
+        }
+
+        function checkDuplicates() {
+            const projectId = document.getElementById('projectId').value;
+            const content = document.getElementById('contentInput').value;
+            const resultDiv = document.getElementById('result');
+            const statsDiv = document.getElementById('statistics');
+
+            if (!projectId || !content) {
+                alert('Please enter both Project ID and content.');
+                return;
+            }
+
+            // Initialize project if doesn't exist
+            if (!projectData[projectId]) {
+                projectData[projectId] = [];
+            }
+
+            let isDuplicate = false;
+            let highestSimilarity = 0;
+            let similarContent = '';
+
+            // Check for duplicates and similar content
+            for (const existingContent of projectData[projectId]) {
+                const similarity = calculateSimilarity(content, existingContent);
+                
+                if (similarity > highestSimilarity) {
+                    highestSimilarity = similarity;
+                    similarContent = existingContent;
+                }
+
+                if (similarity > 0.8) { // 80% similarity threshold
+                    isDuplicate = true;
+                    break;
+                }
+            }
+
+            resultDiv.classList.remove('hidden', 'bg-red-100', 'bg-green-100');
+            
+            if (isDuplicate) {
+                resultDiv.classList.add('bg-red-100');
+                resultDiv.innerHTML = `
+                    <p class="text-red-700">⚠️ Duplicate or very similar content detected!</p>
+                    <p class="mt-2">Similar content:</p>
+                    <p class="italic mt-1">${similarContent}</p>
+                `;
+            } else {
+                projectData[projectId].push(content);
+                resultDiv.classList.add('bg-green-100');
+                resultDiv.innerHTML = `
+                    <p class="text-green-700">✅ Content is unique! Added to project ${projectId}</p>
+                `;
+            }
+
+            // Update statistics
+            statsDiv.innerHTML = `
+                <div class="bg-blue-50 p-4 rounded">
+                    <h3 class="font-semibold">Project: ${projectId}</h3>
+                    <p>Total Entries: ${projectData[projectId].length}</p>
+                    <p>Highest Similarity: ${(highestSimilarity * 100).toFixed(2)}%</p>
+                </div>
+                <div class="bg-blue-50 p-4 rounded">
+                    <h3 class="font-semibold">Word Count</h3>
+                    <p>Current Entry: ${content.split(' ').length} words</p>
+                    <p>Uniqueness Score: ${((1 - highestSimilarity) * 100).toFixed(2)}%</p>
+                </div>
+            `;
+        }
+
+        function downloadExcel() {
+            const projectId = document.getElementById('projectId').value;
+            
+            if (!projectId || !projectData[projectId]) {
+                alert('No data available for this project ID');
+                return;
+            }
+
+            // Create workbook
+            const wb = XLSX.utils.book_new();
+            
+            // Convert data to worksheet format
+            const wsData = projectData[projectId].map((content, index) => ({
+                'Entry #': index + 1,
+                'Content': content,
+                'Timestamp': new Date().toISOString()
+            }));
+            
+            const ws = XLSX.utils.json_to_sheet(wsData);
+            
+            // Add worksheet to workbook
+            XLSX.utils.book_append_sheet(wb, ws, `Project_${projectId}`);
+            
+            // Generate Excel file
+            XLSX.writeFile(wb, `Project_${projectId}_Content.xlsx`);
+        }
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
